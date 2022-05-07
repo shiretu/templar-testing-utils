@@ -16,9 +16,7 @@
                 "<node_internals>/**"
             ],
             "type": "node",
-            "env": {
-                "NODE_LISTEN_PORT_FILE_PATH": "/tmp/NODE_LISTEN_PORT_FILE_PATH.txt"
-            }
+            "env": {}
         }
     ]
 }
