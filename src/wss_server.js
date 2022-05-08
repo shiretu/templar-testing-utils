@@ -27,7 +27,7 @@ const work = async () => {
         wsConn.on('error', errorHandling)
         switch (req.url) {
             case '/evt_connected':
-                wsConn.close()
+                // wsConn.close()
                 break
             case '/evt_disconnected_transport':
                 setTimeout(() => {
