@@ -1,22 +1,22 @@
-const HttpsServer = require('https').createServer
+const https = require('https')
 const pem = require('pem')
-const WebSocketServer = require('ws').Server
-const WebSocketStream = require('ws').createWebSocketStream
+const ws = require('ws')
+// const WebSocketServer = require('ws').Server
+// const WebSocketStream = require('ws').createWebSocketStream
 const util = require('util')
 const fs = require('fs')
 
 const createCertificate = util.promisify(pem.createCertificate)
 
-const work = async () => {
+const version = 'v2'
+
+const wssServerWork = async () => {
     const cert = await createCertificate({
         days: 365,
         selfSigned: true
     })
-    const httpsServer = HttpsServer({ key: cert.serviceKey, cert: cert.certificate })
-    const wss = new WebSocketServer({
-        // server: httpsServer
-        noServer: true
-    })
+    const httpsServer = https.createServer({ key: cert.serviceKey, cert: cert.certificate })
+    const wss = new ws.Server({ noServer: true })
     wss.on('connection', (wsConn, req) => {
         console.log(`WebSocket client connected: ${wsConn._socket.remoteAddress}:${wsConn._socket.remotePort} on url: ${req.url}`)
 
@@ -65,7 +65,7 @@ const work = async () => {
         // wsStream.pipe(process.stdout).on('error', errorHandling)
     })
     wss.on('headers', (headers, req) => {
-        headers.push('templar-testing-server-version: v1')
+        headers.push(`templar-testing-server-version: ${version}`)
     })
 
     httpsServer.on('upgrade', function upgrade (req, sock, _) {
@@ -96,4 +96,45 @@ const work = async () => {
     httpsServer.listen(9443)
 }
 
-work()
+const httpsServerWork = async () => {
+    const requestListener = (req, res) => {
+        console.log(`HTTPS client connected: ${req.socket.remoteAddress}:${req.socket.remotePort} on url: ${req.url}`)
+        res.setHeader('templar-testing-server-version', version)
+        switch (req.url) {
+            case '/http_request_failed_transport':
+                req.socket.destroy()
+                break
+            case '/http_response':
+                res.end('Hello world!')
+                break
+            case '/http_response_extra_headers':
+                if (req.headers.custom) { res.setHeader('custom', req.headers.custom) }
+                res.end('Hello world!')
+                break
+            case '/http_response_extra_data':
+                req.on('readable', () => {
+                    if (!req.complete) return
+                    const data = req.read()
+                    res.end(data)
+                })
+                break
+            case '/http_response_extra_headers_and_data':
+                if (req.headers.custom) { res.setHeader('custom', req.headers.custom) }
+                req.on('readable', () => {
+                    if (!req.complete) return
+                    const data = req.read()
+                    res.end(data)
+                })
+                break
+            default:
+                break
+        }
+    }
+
+    const cert = await createCertificate({ days: 365, selfSigned: true })
+    const httpsServer = https.createServer({ key: cert.serviceKey, cert: cert.certificate }, requestListener)
+    httpsServer.listen(8443)
+}
+
+wssServerWork()
+httpsServerWork()
