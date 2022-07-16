@@ -1,4 +1,5 @@
 const https = require('https')
+const http2 = require('http2')
 const pem = require('pem')
 const ws = require('ws')
 // const WebSocketServer = require('ws').Server
@@ -136,5 +137,20 @@ const httpsServerWork = async () => {
     httpsServer.listen(8443)
 }
 
+const http2ServerWork = async () => {
+    const requestListener = (req, res) => {
+        console.log(`HTTP2 client connected: ${req.socket.remoteAddress}:${req.socket.remotePort}`)
+        console.log('req\n', req.headers)
+        res.setHeader('aloha', 'Hi there')
+        console.log('res\n', res.getHeaders())
+        res.end('Hello world!')
+    }
+
+    const cert = await createCertificate({ days: 365, selfSigned: true })
+    const http2Server = http2.createSecureServer({ key: cert.serviceKey, cert: cert.certificate }, requestListener)
+    return http2Server.listen(7443)
+}
+
 wssServerWork()
 httpsServerWork()
+http2ServerWork()

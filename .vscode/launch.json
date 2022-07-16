@@ -9,7 +9,7 @@
             "request": "launch",
             "runtimeArgs": [
                 "run-script",
-                "wss_server"
+                "trace_parser",
             ],
             "runtimeExecutable": "npm",
             "skipFiles": [

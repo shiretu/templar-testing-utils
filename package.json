@@ -3,7 +3,8 @@
     "version": "1.0.0",
     "description": "Collection of utilities to test templar::eutils",
     "scripts": {
-        "wss_server": "node ./src/wss_server.js"
+        "wss_server": "node ./src/wss_server.js",
+        "trace_parser": "node ./src/trace_parser.js"
     },
     "author": "Eugen-Andrei Gavriloaie <andrei@gavriloaie.com>",
     "license": "ISC",
@@ -11,7 +12,8 @@
         "pem": "~1.14.6",
         "ws": "~8.5.0",
         "express": "~4.18.1",
-        "ws-streamify": "~0.1.4"
+        "ws-streamify": "~0.1.4",
+        "cli-progress": "~3.11.2"
     },
     "devDependencies": {
         "eslint": "~8.14.0",
