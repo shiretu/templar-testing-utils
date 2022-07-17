@@ -96,6 +96,29 @@ const loadFiles = async (pathBase, loopStartMessage) => {
     const points = new BigUint64Array(result.points.buffer, result.points.byteOffset, result.points.length / 8)
     result.points = points // .subarray(0, 60)
 
+    // remove the trace saving frames
+    {
+        const startSavingTraceAddress = BigInt(getLoopStartAddress(result.translation, 'start saving trace'))
+        let delta = BigInt(0)
+        result.points.forEach((e, i) => {
+            // update current timestamp
+            if ((i % 2) === 0) {
+                result.points[i] -= delta
+                return
+            }
+
+            // is this a new save?
+            if (e !== startSavingTraceAddress) { return }
+
+            // okay, it is a new save, compute delta
+            const thisTs = result.points[i - 1]
+            const nextTs = result.points[i + 1]
+            if (!nextTs) { return }
+            delta += nextTs - thisTs
+            result.points[i - 1] -= delta
+        })
+    }
+
     // compute the number of loops detected in the data set and allocate space for it
     const loopStartAddress = BigInt(getLoopStartAddress(result.translation, loopStartMessage))
     {
