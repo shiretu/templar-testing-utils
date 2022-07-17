@@ -1,118 +1,200 @@
-
 const fs = require('fs')
 const { promisify } = require('util')
-const readFile = promisify(fs.readFile)
-const crypto = require('crypto')
+const fsOpen = promisify(fs.open)
+const fsRead = promisify(fs.read)
+const fsClose = promisify(fs.close)
 const cliProgress = require('cli-progress')
-const util = require('util')
+const SortedArray = require('sorted-array')
 
-const loadFile = async (filePath) => {
-    console.log(`loading file ${filePath}`)
-    const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
-    const data = await readFile(filePath)
-    let cursor = 0
+const loadFiles = async (pathBase, loopStartMessage) => {
+    const filesList = []
 
-    const ticksPerSecond = data.readBigUInt64LE(cursor)
-    cursor += 8
-
-    const pointsBytesCount = data.readBigUInt64LE(cursor)
-    const pointsCount = pointsBytesCount / BigInt(16)
-    cursor += 8
-    const result = []
-    progress.start(Number(pointsCount), 0)
-    for (let i = 0; i < pointsCount; i++) {
-        result.push({ time: data.readBigInt64LE(cursor), address: data.readBigInt64LE(cursor + 8) })
-        cursor += 16
-        if ((i % 100) === 0) { progress.update(i) }
-    }
-    progress.update(Number(pointsCount))
-    progress.stop()
-
-    const translation = {}
-
-    while (cursor < data.byteLength) {
-        const address = data.readBigUInt64LE(cursor)
-        const length = data.readUint32LE(cursor + 8)
-        const name = data.subarray(cursor + 12, cursor + 12 + length).toString()
-        translation[`${address}`] = name
-        cursor += 12 + length
-    }
-
-    return { ticksPerSecond, points: result.map(e => { return { name: translation[e.address], time: e.time } }) }
-}
-
-const loadFiles = async (pathBase) => {
-    let points = []
+    // compute the list of files to be loaded
     let i = 0
-    let ticksPerSecond
     while (true) {
         const path = `${pathBase}_${i++}`
         if (!fs.existsSync(path)) break
-        const data = await loadFile(path)
-        points = points.concat(data.points)
-        ticksPerSecond = data.ticksPerSecond
+        filesList.push(path)
     }
-    return { ticksPerSecond, points }
-}
 
-const getStacks = async (pathBase) => {
-    // load all points
-    const data = await loadFiles(pathBase)
-    const points = data.points
-    const ticksPerSecond = data.ticksPerSecond
-    const startName = points[0].name
+    // read the metadata about each file
+    const metadata = await Promise.all(filesList.map(async filePath => {
+        // open the file
+        const file = await fsOpen(filePath, 'r')
 
-    // split all points into stacks
-    const stacks = []
-    let stack = { frames: [], hash: crypto.createHash('sha256') }
-    console.log('Processing data points')
-    const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
-    progress.start(points.length, 0)
-    const baseTime = points[0].time
-    points.forEach((point, idx) => {
-        point.time -= baseTime
-        if ((idx % 100) === 0) { progress.update(idx) }
-        if (point.name === startName) {
-            if (stack.frames.length) {
-                const last = stack.frames[stack.frames.length - 1]
-                last.duration = point.time - last.time
-                stack.duration = stack.frames.reduce((a, c) => { return a + c.duration }, BigInt(0))
-                stack.hash = stack.hash.digest('hex')
-                stacks.push(stack)
+        // read the header
+        const header = Buffer.alloc(16)
+        await fsRead(file, header, 0, header.length, 0)
+        const ticksPerSecond = header.readBigUInt64LE(0)
+        const pointsBytesCount = header.readBigUInt64LE(8)
+
+        // read the translation table
+        const entry = Buffer.alloc(12)
+        let cursor = Number(pointsBytesCount) + 16
+        const translation = {}
+        while (true) {
+            {
+                const res = await fsRead(file, entry, 0, entry.length, cursor)
+                if (res.bytesRead !== 12) { break }
             }
-            stack = { frames: [], hash: crypto.createHash('sha256') }
+            const address = entry.readBigUInt64LE()
+            const length = entry.readUint32LE(8)
+            const str = Buffer.alloc(length)
+            {
+                const res = await fsRead(file, str, 0, str.length, cursor + 12)
+                if (res.bytesRead !== length) { break }
+            }
+
+            translation[address] = str.toString()
+
+            cursor += (length + 12)
         }
-        stack.frames.push(point)
-        stack.hash.update(point.name)
-        if (stack.frames.length >= 2) {
-            const beforeLast = stack.frames[stack.frames.length - 2]
-            const last = stack.frames[stack.frames.length - 1]
-            beforeLast.duration = last.time - beforeLast.time
-        }
+
+        // close the file
+        fsClose(file)
+
+        return { filePath, translation, ticksPerSecond, pointsBytesCount: Number(pointsBytesCount) }
+    }))
+
+    // compute the total amount of bytes required and also the storage offsets
+    let totalPointsBytesCount = 0
+    metadata.forEach(e => {
+        e.offset = totalPointsBytesCount
+        totalPointsBytesCount += e.pointsBytesCount
     })
-    progress.update(points.length)
+
+    // allocate the buffer which will hold all data
+    const result = {
+        points: Buffer.alloc(totalPointsBytesCount),
+        translation: {}
+    }
+
+    // load all data
+    const res = await Promise.all(metadata.map(async e => {
+        // open the file
+        const file = await fsOpen(e.filePath, 'r')
+
+        // read
+        const res = await fsRead(file, result.points, e.offset, e.pointsBytesCount, 16)
+
+        // close the file
+        fsClose(file)
+
+        // did we read everything?
+        if (res.bytesRead !== e.pointsBytesCount) { return 0 }
+
+        // merge translation and save the ticksPerSecond
+        result.translation = { ...result.translation, ...e.translation }
+        result.ticksPerSecond = e.ticksPerSecond
+
+        // done
+        return 1
+    }))
+    if (res.reduce((a, c) => a + c, 0) !== res.length) { return null }
+
+    // transform the points int a 64bits integers array
+    const points = new BigUint64Array(result.points.buffer, result.points.byteOffset, result.points.length / 8)
+    result.points = points // .subarray(0, 60)
+
+    // compute the number of loops detected in the data set and allocate space for it
+    const loopStartAddress = BigInt(getLoopStartAddress(result.translation, loopStartMessage))
+    {
+        const count = result.points.reduce((a, c, i) => {
+            if (!(i & 0x01) || (c !== loopStartAddress)) { return a }
+            return a + 1
+        }, 0)
+        {
+            const storage = Buffer.alloc(count * 4)
+            result.loopsStarts = new Uint32Array(storage.buffer, storage.byteOffset, storage.length / 4)
+        }
+        {
+            const storage = Buffer.alloc(count * 8)
+            result.loopsDurations = new Float64Array(storage.buffer, storage.byteOffset, storage.length / 8)
+        }
+    }
+
+    // compute all durations in nanoseconds and loops boundaries
+    const clockRate = Number(result.ticksPerSecond) / 1000000000.0
+    const durationsStorage = Buffer.alloc((result.points.length / 2 - 1) * 8)
+    result.durations = new Float64Array(durationsStorage.buffer, durationsStorage.byteOffset, durationsStorage.length / 8)
+    const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
+    console.log(`Compute ${(result.durations.length / 1000000.0).toFixed(3)}M durations`)
+    progress.start(result.durations.length, 0)
+    let loopIndex = 0
+    let loopDuration = 0
+    for (let i = 0; i < result.durations.length; i++) {
+        if ((i % 1000) === 0) { progress.update(i) }
+
+        // compute duration
+        result.durations[i] = Number(result.points[(i + 1) * 2] - result.points[i * 2]) / clockRate
+
+        // compute loop start/stop
+        if (result.points[i * 2 + 1] === loopStartAddress) {
+            result.loopsStarts[loopIndex] = i
+            if (loopIndex !== 0) {
+                result.loopsDurations[loopIndex - 1] = loopDuration
+            }
+            ++loopIndex
+            loopDuration = result.durations[i]
+        } else {
+            loopDuration += result.durations[i]
+        }
+    }
+    result.loopsDurations[result.loopsDurations.length - 1] = loopDuration
     progress.stop()
 
-    // get the unique collection of stacks
-    const uniqueStacks = { all: [] }
-    stacks.forEach(stack => {
-        if (uniqueStacks[stack.hash]) return
-        uniqueStacks[stack.hash] = 1
-        uniqueStacks.all.push(stack)
-    })
+    // done
+    return result
+}
 
-    return { ticksPerSecond, stacks, uniqueStacks: uniqueStacks.all }
+const getLoopStartAddress = (translation, loopStartMessage) => {
+    for (const key in translation) {
+        if (translation[key].endsWith(loopStartMessage)) { return key }
+    }
+    return ''
 }
 
 const work = async () => {
-    const data = await getStacks('/tmp/trace')
-    const stacks = data.stacks
-    const ticksPerSecond = Number(data.ticksPerSecond) / 1000000
+    // load the data
+    const data = await loadFiles('/tmp/trace', '- begin loop')
 
-    stacks.sort((a, b) => Number(b.duration - a.duration))
-    console.log(`we have ${stacks.length} stack instances`)
-    for (let i = 0; i < 30; i++) {
-        console.log(util.inspect(stacks[i], false, null, true /* enable colors */))
+    // get the top loops
+    const loopsCount = 50
+    const busyLoopsStorage = new SortedArray([], (a, b) => b.duration - a.duration)
+    const busyLoops = busyLoopsStorage.array
+    {
+        const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
+        console.log(`Scanning ${(data.loopsDurations.length / 1000000.0).toFixed(3)}M loops`)
+        progress.start(data.loopsDurations.length, 0)
+        let smallestLoopDuration = 0
+        data.loopsDurations.forEach((loopDuration, index) => {
+            // update progress bar
+            if ((index % 1000) === 0) { progress.update(index) }
+
+            // only insert the new stack if it is greater than the smallest one already stored
+            if ((busyLoops.length >= loopsCount) && (smallestLoopDuration >= loopDuration)) { return }
+
+            // create the loop info
+            const frameIndexStart = data.loopsStarts[index]
+            const frameIndexEnd = (index + 1) < data.loopsStarts.length ? data.loopsStarts[index + 1] : data.durations.length
+            const framesCount = frameIndexEnd - frameIndexStart
+            const frames = [...data.points.subarray(frameIndexStart * 2, (frameIndexStart + framesCount) * 2).filter((e, i) => i % 2 === 1)]
+                .map((address, frameIndex) => { return { location: data.translation[address], duration: data.durations[frameIndexStart + frameIndex] } })
+            const loop = { loopIndex: index, frameIndex: data.loopsStarts[index], duration: loopDuration, frames }
+
+            busyLoopsStorage.insert(loop)
+            if (busyLoops.length > loopsCount) { busyLoops.splice(busyLoops.length - 1, 1) }
+            smallestLoopDuration = busyLoops[busyLoops.length - 1].loopDuration
+        })
+        progress.update(data.loopsDurations.length)
+        progress.stop()
+        console.table(busyLoops)
+        console.log(busyLoops[loopsCount - 5])
+        console.log(busyLoops[loopsCount - 4])
+        console.log(busyLoops[loopsCount - 3])
+        console.log(busyLoops[loopsCount - 2])
+        console.log(busyLoops[loopsCount - 1])
+        console.log(busyLoops[2])
     }
 }
 
