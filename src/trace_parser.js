@@ -18,43 +18,53 @@ const loadFiles = async (pathBase, loopStartMessage) => {
     }
 
     // read the metadata about each file
-    const metadata = await Promise.all(filesList.map(async filePath => {
-        // open the file
-        const file = await fsOpen(filePath, 'r')
+    const metadata = []
+    {
+        const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
+        console.log(`Load metadata for ${filesList.length} files`)
+        progress.start(filesList.length, 0)
+        for (let i = 0; i < filesList.length; ++i) {
+            progress.increment()
 
-        // read the header
-        const header = Buffer.alloc(16)
-        await fsRead(file, header, 0, header.length, 0)
-        const ticksPerSecond = header.readBigUInt64LE(0)
-        const pointsBytesCount = header.readBigUInt64LE(8)
+            // open the file
+            const filePath = filesList[i]
+            const file = await fsOpen(filePath, 'r')
 
-        // read the translation table
-        const entry = Buffer.alloc(12)
-        let cursor = Number(pointsBytesCount) + 16
-        const translation = {}
-        while (true) {
-            {
-                const res = await fsRead(file, entry, 0, entry.length, cursor)
-                if (res.bytesRead !== 12) { break }
+            // read the header
+            const header = Buffer.alloc(16)
+            await fsRead(file, header, 0, header.length, 0)
+            const ticksPerSecond = header.readBigUInt64LE(0)
+            const pointsBytesCount = header.readBigUInt64LE(8)
+
+            // read the translation table
+            const entry = Buffer.alloc(12)
+            let cursor = Number(pointsBytesCount) + 16
+            const translation = {}
+            while (true) {
+                {
+                    const res = await fsRead(file, entry, 0, entry.length, cursor)
+                    if (res.bytesRead !== 12) { break }
+                }
+                const address = entry.readBigUInt64LE()
+                const length = entry.readUint32LE(8)
+                const str = Buffer.alloc(length)
+                {
+                    const res = await fsRead(file, str, 0, str.length, cursor + 12)
+                    if (res.bytesRead !== length) { break }
+                }
+
+                translation[address] = str.toString()
+
+                cursor += (length + 12)
             }
-            const address = entry.readBigUInt64LE()
-            const length = entry.readUint32LE(8)
-            const str = Buffer.alloc(length)
-            {
-                const res = await fsRead(file, str, 0, str.length, cursor + 12)
-                if (res.bytesRead !== length) { break }
-            }
 
-            translation[address] = str.toString()
+            // close the file
+            fsClose(file)
 
-            cursor += (length + 12)
+            metadata.push({ filePath, translation, ticksPerSecond, pointsBytesCount: Number(pointsBytesCount) })
         }
-
-        // close the file
-        fsClose(file)
-
-        return { filePath, translation, ticksPerSecond, pointsBytesCount: Number(pointsBytesCount) }
-    }))
+        progress.stop()
+    }
 
     // compute the total amount of bytes required and also the storage offsets
     let totalPointsBytesCount = 0
@@ -70,27 +80,34 @@ const loadFiles = async (pathBase, loopStartMessage) => {
     }
 
     // load all data
-    const res = await Promise.all(metadata.map(async e => {
-        // open the file
-        const file = await fsOpen(e.filePath, 'r')
+    {
+        const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
+        console.log(`Load ${filesList.length} data files`)
+        progress.start(metadata.length, 0)
+        // const res = await Promise.all(metadata.map(async e => {
+        for (let i = 0; i < metadata.length; ++i) {
+            const e = metadata[i]
 
-        // read
-        const res = await fsRead(file, result.points, e.offset, e.pointsBytesCount, 16)
+            // open the file
+            const file = await fsOpen(e.filePath, 'r')
 
-        // close the file
-        fsClose(file)
+            // read
+            const res = await fsRead(file, result.points, e.offset, e.pointsBytesCount, 16)
 
-        // did we read everything?
-        if (res.bytesRead !== e.pointsBytesCount) { return 0 }
+            // close the file
+            fsClose(file)
 
-        // merge translation and save the ticksPerSecond
-        result.translation = { ...result.translation, ...e.translation }
-        result.ticksPerSecond = e.ticksPerSecond
+            // did we read everything?
+            if (res.bytesRead !== e.pointsBytesCount) { return null }
 
-        // done
-        return 1
-    }))
-    if (res.reduce((a, c) => a + c, 0) !== res.length) { return null }
+            // merge translation and save the ticksPerSecond
+            result.translation = { ...result.translation, ...e.translation }
+            result.ticksPerSecond = e.ticksPerSecond
+
+            progress.increment()
+        }
+        progress.stop()
+    }
 
     // transform the points int a 64bits integers array
     const points = new BigUint64Array(result.points.buffer, result.points.byteOffset, result.points.length / 8)
@@ -98,9 +115,14 @@ const loadFiles = async (pathBase, loopStartMessage) => {
 
     // remove the trace saving frames
     {
+        const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
+        console.log(`Filter ${(result.points.length / 2 / 1000000.0).toFixed(3)}M data points`)
+        progress.start(result.points.length, 0)
         const startSavingTraceAddress = BigInt(getLoopStartAddress(result.translation, 'start saving trace'))
         let delta = BigInt(0)
         result.points.forEach((e, i) => {
+            if ((i % 1000) === 0) { progress.update(i) }
+
             // update current timestamp
             if ((i % 2) === 0) {
                 result.points[i] -= delta
@@ -117,6 +139,7 @@ const loadFiles = async (pathBase, loopStartMessage) => {
             delta += nextTs - thisTs
             result.points[i - 1] -= delta
         })
+        progress.stop()
     }
 
     // compute the number of loops detected in the data set and allocate space for it
@@ -211,13 +234,8 @@ const work = async () => {
         })
         progress.update(data.loopsDurations.length)
         progress.stop()
+        for (let i = 0; i < busyLoops.length; ++i) { console.log(busyLoops[i]) }
         console.table(busyLoops)
-        console.log(busyLoops[loopsCount - 5])
-        console.log(busyLoops[loopsCount - 4])
-        console.log(busyLoops[loopsCount - 3])
-        console.log(busyLoops[loopsCount - 2])
-        console.log(busyLoops[loopsCount - 1])
-        console.log(busyLoops[2])
     }
 }
 
