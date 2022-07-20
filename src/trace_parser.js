@@ -117,28 +117,19 @@ const loadFiles = async (pathBase, loopStartMessage) => {
     {
         const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
         console.log(`Filter ${(result.points.length / 2 / 1000000.0).toFixed(3)}M data points`)
-        progress.start(result.points.length, 0)
-        const startSavingTraceAddress = BigInt(getLoopStartAddress(result.translation, 'start saving trace'))
+        progress.start(result.points.length / 2, 0)
+        const endSavingTraceAddress = BigInt(getLoopStartAddress(result.translation, 'end saving trace'))
         let delta = BigInt(0)
-        result.points.forEach((e, i) => {
+        // result.points.forEach((e, i) => { if ((i % 2) === 0) console.error(`${e}`) })
+        for (let i = 0; i < result.points.length / 2; ++i) {
             if ((i % 1000) === 0) { progress.update(i) }
-
-            // update current timestamp
-            if ((i % 2) === 0) {
-                result.points[i] -= delta
-                return
+            if (result.points[i * 2 + 1] !== endSavingTraceAddress) {
+                result.points[i * 2] -= delta
+                continue
             }
-
-            // is this a new save?
-            if (e !== startSavingTraceAddress) { return }
-
-            // okay, it is a new save, compute delta
-            const thisTs = result.points[i - 1]
-            const nextTs = result.points[i + 1]
-            if (!nextTs) { return }
-            delta += nextTs - thisTs
-            result.points[i - 1] -= delta
-        })
+            delta = result.points[i * 2] - result.points[(i - 1) * 2]
+            result.points[i * 2] -= delta
+        }
         progress.stop()
     }
 
