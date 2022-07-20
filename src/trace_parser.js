@@ -6,7 +6,14 @@ const fsClose = promisify(fs.close)
 const cliProgress = require('cli-progress')
 const SortedArray = require('sorted-array')
 
-const loadFiles = async (pathBase, loopStartMessage) => {
+const getLoopStartAddress = (translation, loopStartMessage) => {
+    for (const key in translation) {
+        if (translation[key].endsWith(loopStartMessage)) { return key }
+    }
+    return ''
+}
+
+const loadFiles = async (pathBase) => {
     const filesList = []
 
     // compute the list of files to be loaded
@@ -20,8 +27,8 @@ const loadFiles = async (pathBase, loopStartMessage) => {
     // read the metadata about each file
     const metadata = []
     {
-        const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
         console.log(`Load metadata for ${filesList.length} files`)
+        const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
         progress.start(filesList.length, 0)
         for (let i = 0; i < filesList.length; ++i) {
             progress.increment()
@@ -80,121 +87,117 @@ const loadFiles = async (pathBase, loopStartMessage) => {
     }
 
     // load all data
-    {
-        const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
-        console.log(`Load ${filesList.length} data files`)
-        progress.start(metadata.length, 0)
-        // const res = await Promise.all(metadata.map(async e => {
-        for (let i = 0; i < metadata.length; ++i) {
-            const e = metadata[i]
+    console.log(`Load ${filesList.length} data files`)
+    const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
+    progress.start(metadata.length, 0)
+    // const res = await Promise.all(metadata.map(async e => {
+    for (let i = 0; i < metadata.length; ++i) {
+        const e = metadata[i]
 
-            // open the file
-            const file = await fsOpen(e.filePath, 'r')
+        // open the file
+        const file = await fsOpen(e.filePath, 'r')
 
-            // read
-            const res = await fsRead(file, result.points, e.offset, e.pointsBytesCount, 16)
+        // read
+        const res = await fsRead(file, result.points, e.offset, e.pointsBytesCount, 16)
 
-            // close the file
-            fsClose(file)
+        // close the file
+        fsClose(file)
 
-            // did we read everything?
-            if (res.bytesRead !== e.pointsBytesCount) { return null }
+        // did we read everything?
+        if (res.bytesRead !== e.pointsBytesCount) { return null }
 
-            // merge translation and save the ticksPerSecond
-            result.translation = { ...result.translation, ...e.translation }
-            result.ticksPerSecond = e.ticksPerSecond
+        // merge translation and save the ticksPerSecond
+        result.translation = { ...result.translation, ...e.translation }
+        result.ticksPerSecond = e.ticksPerSecond
 
-            progress.increment()
-        }
-        progress.stop()
+        progress.increment()
     }
+    progress.stop()
 
     // transform the points int a 64bits integers array
     const points = new BigUint64Array(result.points.buffer, result.points.byteOffset, result.points.length / 8)
-    result.points = points // .subarray(0, 60)
-
-    // remove the trace saving frames
-    {
-        const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
-        console.log(`Filter ${(result.points.length / 2 / 1000000.0).toFixed(3)}M data points`)
-        progress.start(result.points.length / 2, 0)
-        const endSavingTraceAddress = BigInt(getLoopStartAddress(result.translation, 'end saving trace'))
-        let delta = BigInt(0)
-        // result.points.forEach((e, i) => { if ((i % 2) === 0) console.error(`${e}`) })
-        for (let i = 0; i < result.points.length / 2; ++i) {
-            if ((i % 1000) === 0) { progress.update(i) }
-            if (result.points[i * 2 + 1] !== endSavingTraceAddress) {
-                result.points[i * 2] -= delta
-                continue
-            }
-            delta = result.points[i * 2] - result.points[(i - 1) * 2]
-            result.points[i * 2] -= delta
-        }
-        progress.stop()
-    }
-
-    // compute the number of loops detected in the data set and allocate space for it
-    const loopStartAddress = BigInt(getLoopStartAddress(result.translation, loopStartMessage))
-    {
-        const count = result.points.reduce((a, c, i) => {
-            if (!(i & 0x01) || (c !== loopStartAddress)) { return a }
-            return a + 1
-        }, 0)
-        {
-            const storage = Buffer.alloc(count * 4)
-            result.loopsStarts = new Uint32Array(storage.buffer, storage.byteOffset, storage.length / 4)
-        }
-        {
-            const storage = Buffer.alloc(count * 8)
-            result.loopsDurations = new Float64Array(storage.buffer, storage.byteOffset, storage.length / 8)
-        }
-    }
-
-    // compute all durations in nanoseconds and loops boundaries
-    const clockRate = Number(result.ticksPerSecond) / 1000000000.0
-    const durationsStorage = Buffer.alloc((result.points.length / 2 - 1) * 8)
-    result.durations = new Float64Array(durationsStorage.buffer, durationsStorage.byteOffset, durationsStorage.length / 8)
-    const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
-    console.log(`Compute ${(result.durations.length / 1000000.0).toFixed(3)}M durations`)
-    progress.start(result.durations.length, 0)
-    let loopIndex = 0
-    let loopDuration = 0
-    for (let i = 0; i < result.durations.length; i++) {
-        if ((i % 1000) === 0) { progress.update(i) }
-
-        // compute duration
-        result.durations[i] = Number(result.points[(i + 1) * 2] - result.points[i * 2]) / clockRate
-
-        // compute loop start/stop
-        if (result.points[i * 2 + 1] === loopStartAddress) {
-            result.loopsStarts[loopIndex] = i
-            if (loopIndex !== 0) {
-                result.loopsDurations[loopIndex - 1] = loopDuration
-            }
-            ++loopIndex
-            loopDuration = result.durations[i]
-        } else {
-            loopDuration += result.durations[i]
-        }
-    }
-    result.loopsDurations[result.loopsDurations.length - 1] = loopDuration
-    progress.stop()
+    result.points = points
 
     // done
     return result
 }
 
-const getLoopStartAddress = (translation, loopStartMessage) => {
-    for (const key in translation) {
-        if (translation[key].endsWith(loopStartMessage)) { return key }
+const adjustTraceSavingFrames = async (data) => {
+    // remove the trace saving frames
+    console.log(`Filter ${(data.points.length / 2 / 1000000.0).toFixed(3)}M data points`)
+    const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
+    progress.start(data.points.length / 2, 0)
+    const endSavingTraceAddress = BigInt(getLoopStartAddress(data.translation, 'end saving trace'))
+    let delta = BigInt(0)
+    for (let i = 0; i < data.points.length / 2; ++i) {
+        if ((i % 1000) === 0) { progress.update(i) }
+        if (data.points[i * 2 + 1] !== endSavingTraceAddress) {
+            data.points[i * 2] -= delta
+            continue
+        }
+        delta = data.points[i * 2] - data.points[(i - 1) * 2]
+        data.points[i * 2] -= delta
     }
-    return ''
+    progress.stop()
 }
 
-const work = async () => {
-    // load the data
-    const data = await loadFiles('/tmp/trace', '- begin loop')
+const splitLoops = async (data) => {
+    // compute the number of loops detected in the data set and allocate space for it
+    data.loopStartAddress = BigInt(getLoopStartAddress(data.translation, '- begin loop'))
+    data.loopEndAddress = BigInt(getLoopStartAddress(data.translation, '- end loop'))
+    {
+        const count = data.points.reduce((a, c, i) => {
+            if (!(i & 0x01) || (c !== data.loopStartAddress)) { return a }
+            return a + 1
+        }, 0)
+        {
+            const storage = Buffer.alloc(count * 4)
+            data.loopsStarts = new Uint32Array(storage.buffer, storage.byteOffset, storage.length / 4)
+        }
+        {
+            const storage = Buffer.alloc(count * 8)
+            data.loopsDurations = new Float64Array(storage.buffer, storage.byteOffset, storage.length / 8)
+        }
+    }
 
+    // get the nanoseconds clock rate factor
+    const clockRate = Number(data.ticksPerSecond) / 1000000000.0
+
+    // allocate space for the durations
+    const durationsStorage = Buffer.alloc((data.points.length / 2 - 1) * 8)
+    data.durations = new Float64Array(durationsStorage.buffer, durationsStorage.byteOffset, durationsStorage.length / 8)
+
+    // compute the durations for all frames and create the array of loops
+    console.log(`Compute ${(data.durations.length / 1000000.0).toFixed(3)}M durations`)
+    const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
+    progress.start(data.durations.length, 0)
+    let loopIndex = 0
+    let loopDuration = 0
+    for (let i = 0; i < data.durations.length; i++) {
+        if ((i % 1000) === 0) { progress.update(i) }
+
+        // compute duration
+        data.durations[i] = Number(data.points[(i + 1) * 2] - data.points[i * 2]) / clockRate
+
+        // compute loop start/stop
+        if (data.points[i * 2 + 1] === data.loopStartAddress) {
+            data.loopsStarts[loopIndex] = i
+            if (loopIndex !== 0) {
+                data.loopsDurations[loopIndex - 1] = loopDuration
+            }
+            ++loopIndex
+            loopDuration = data.durations[i]
+        } else {
+            if (data.points[i * 2 + 1] !== data.loopEndAddress) {
+                loopDuration += data.durations[i]
+            }
+        }
+    }
+    data.loopsDurations[data.loopsDurations.length - 1] = loopDuration
+    progress.stop()
+}
+
+const computeTopLoops = async (data) => {
     // get the top loops
     const loopsCount = 50
     const busyLoopsStorage = new SortedArray([], (a, b) => b.duration - a.duration)
@@ -215,7 +218,9 @@ const work = async () => {
             const frameIndexStart = data.loopsStarts[index]
             const frameIndexEnd = (index + 1) < data.loopsStarts.length ? data.loopsStarts[index + 1] : data.durations.length
             const framesCount = frameIndexEnd - frameIndexStart
-            const frames = [...data.points.subarray(frameIndexStart * 2, (frameIndexStart + framesCount) * 2).filter((e, i) => i % 2 === 1)]
+            const frames = [...data.points.subarray(frameIndexStart * 2, (frameIndexStart + framesCount) * 2).filter((e, i) => {
+                return ((i % 2) === 1) && (e !== data.loopEndAddress)
+            })]
                 .map((address, frameIndex) => { return { location: data.translation[address], duration: data.durations[frameIndexStart + frameIndex] } })
             const loop = { loopIndex: index, frameIndex: data.loopsStarts[index], duration: loopDuration, frames }
 
@@ -230,4 +235,11 @@ const work = async () => {
     }
 }
 
-work()
+const process = async (pathBase) => {
+    const result = await loadFiles(pathBase)
+    await adjustTraceSavingFrames(result)
+    await splitLoops(result)
+    await computeTopLoops(result)
+}
+
+process('/tmp/trace')
