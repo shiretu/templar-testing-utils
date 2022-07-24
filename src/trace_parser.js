@@ -235,11 +235,35 @@ const computeTopLoops = async (data) => {
     }
 }
 
+const computeLoopDurationsHistogram = async (data) => {
+    const localLoopDurations = Float64Array.from(data.loopsDurations)
+    localLoopDurations.sort()
+
+    const intervalsCount = 40
+    const min = localLoopDurations[0]
+    const max = localLoopDurations[localLoopDurations.length - 1]
+    const step = (max - min) / intervalsCount
+
+    const distribution = []
+    for (let i = min; i <= max; i += step) {
+        distribution.push({ durationStart: i, durationEnd: i + step, count: 0 })
+    }
+
+    localLoopDurations.map(e => {
+        const index = Math.trunc((e - min) / step)
+        distribution[index].count++
+        return e
+    })
+
+    console.table(distribution)
+}
+
 const process = async (pathBase) => {
     const result = await loadFiles(pathBase)
     await adjustTraceSavingFrames(result)
     await splitLoops(result)
     await computeTopLoops(result)
+    await computeLoopDurationsHistogram(result)
 }
 
 process('/tmp/trace')
