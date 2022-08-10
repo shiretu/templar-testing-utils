@@ -10,6 +10,8 @@
             "runtimeArgs": [
                 "run-script",
                 "trace_parser",
+                "--",
+                "/tmp/trace"
             ],
             "runtimeExecutable": "npm",
             "skipFiles": [
