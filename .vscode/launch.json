@@ -11,7 +11,8 @@
                 "run-script",
                 "trace_parser",
                 "--",
-                "/tmp/trace"
+                "/tmp/trace",
+                "3805110"
             ],
             "runtimeExecutable": "npm",
             "skipFiles": [

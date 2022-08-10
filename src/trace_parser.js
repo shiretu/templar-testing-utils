@@ -258,12 +258,21 @@ const computeLoopDurationsHistogram = async (data) => {
     console.table(distribution)
 }
 
-const processFiles = async (pathBase) => {
+const computeAvgAndDeviation = async (data, outliarLimit) => {
+    const input = data.loopsDurations.filter(e => e < outliarLimit)
+    const sum = input.reduce((a, c) => a + c, 0)
+    const avg = sum / input.length
+    const deviation = Math.sqrt(input.map(e => (e - avg) * (e - avg)).reduce((a, c) => a + c, 0) / (input.length - 1))
+    console.log(`avg: ${avg}; dev: ${deviation}`)
+}
+
+const processFiles = async (pathBase, outliarLimit) => {
     const result = await loadFiles(pathBase)
     await adjustTraceSavingFrames(result)
     await splitLoops(result)
     await computeTopLoops(result)
     await computeLoopDurationsHistogram(result)
+    await computeAvgAndDeviation(result, outliarLimit || 3805110)
 }
 
-processFiles(process.argv[2])
+processFiles(process.argv[2], process.argv[3])
