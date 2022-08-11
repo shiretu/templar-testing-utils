@@ -143,8 +143,8 @@ const adjustTraceSavingFrames = async (data) => {
 
 const splitLoops = async (data) => {
     // compute the number of loops detected in the data set and allocate space for it
-    data.loopStartAddress = BigInt(getLoopStartAddress(data.translation, '- begin loop'))
-    data.loopEndAddress = BigInt(getLoopStartAddress(data.translation, '- end loop'))
+    data.loopStartAddress = BigInt(getLoopStartAddress(data.translation, 'begin loop'))
+    data.loopEndAddress = BigInt(getLoopStartAddress(data.translation, 'end loop'))
     {
         const count = data.points.reduce((a, c, i) => {
             if (!(i & 0x01) || (c !== data.loopStartAddress)) { return a }
