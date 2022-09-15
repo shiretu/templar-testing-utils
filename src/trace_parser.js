@@ -127,7 +127,10 @@ const adjustTraceSavingFrames = async (data) => {
     console.log(`Filter ${(data.points.length / 2 / 1000000.0).toFixed(3)}M data points`)
     const progress = new cliProgress.SingleBar({ }, cliProgress.Presets.shades_classic)
     progress.start(data.points.length / 2, 0)
+    const startSavingTraceAddress = BigInt(getLoopStartAddress(data.translation, 'start saving trace'))
     const endSavingTraceAddress = BigInt(getLoopStartAddress(data.translation, 'end saving trace'))
+    const starts = data.points.filter(e => e === startSavingTraceAddress)
+    const ends = data.points.filter(e => e === endSavingTraceAddress)
     let delta = BigInt(0)
     for (let i = 0; i < data.points.length / 2; ++i) {
         if ((i % 1000) === 0) { progress.update(i) }
