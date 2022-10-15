@@ -6,6 +6,8 @@ const ws = require('ws')
 // const WebSocketStream = require('ws').createWebSocketStream
 const util = require('util')
 const fs = require('fs')
+const Readable = require('stream').Readable
+const crypto = require('crypto')
 
 const createCertificate = util.promisify(pem.createCertificate)
 
@@ -127,6 +129,24 @@ const httpsServerWork = async () => {
                     res.end(data)
                 })
                 break
+            case '/http_chunked_response':
+            {
+                const randString = (minLen, maxLen) => {
+                    const len = minLen + Math.floor(Math.random() * (maxLen - minLen + 1))
+                    return crypto.randomBytes(len).toString('hex')
+                }
+                let count = 0
+                const s = new Readable({
+                    read (size) {
+                        this.push(randString(2, 10))
+                        if (count === 9) this.push(null)
+                        count++
+                    },
+                    highWaterMark: 1
+                })
+                s.pipe(res)
+                break
+            }
             default:
                 break
         }
