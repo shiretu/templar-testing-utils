@@ -1,4 +1,5 @@
 const https = require('https')
+const http = require('http')
 const http2 = require('http2')
 const pem = require('pem')
 const ws = require('ws')
@@ -7,7 +8,6 @@ const ws = require('ws')
 const util = require('util')
 const fs = require('fs')
 const Readable = require('stream').Readable
-const crypto = require('crypto')
 
 const createCertificate = util.promisify(pem.createCertificate)
 
@@ -99,9 +99,9 @@ const wssServerWork = async () => {
     httpsServer.listen(9443)
 }
 
-const httpsServerWork = async () => {
+const httpServerWork = async () => {
     const requestListener = (req, res) => {
-        console.log(`HTTPS client connected: ${req.socket.remoteAddress}:${req.socket.remotePort} on url: ${req.url}`)
+        console.log(`HTTP(S) client connected: ${req.socket.remoteAddress}:${req.socket.remotePort} on url: ${req.url}`)
         res.setHeader('templar-testing-server-version', version)
         switch (req.url) {
             case '/http_request_failed_transport':
@@ -131,15 +131,11 @@ const httpsServerWork = async () => {
                 break
             case '/http_chunked_response':
             {
-                const randString = (minLen, maxLen) => {
-                    const len = minLen + Math.floor(Math.random() * (maxLen - minLen + 1))
-                    return crypto.randomBytes(len).toString('hex')
-                }
                 let count = 0
                 const s = new Readable({
                     read (size) {
-                        this.push(randString(2, 10))
-                        if (count === 9) this.push(null)
+                        this.push('a'.repeat(count + 1))
+                        if (count === 127) this.push(null)
                         count++
                     },
                     highWaterMark: 1
@@ -154,6 +150,8 @@ const httpsServerWork = async () => {
 
     const cert = await createCertificate({ days: 365, selfSigned: true })
     const httpsServer = https.createServer({ key: cert.serviceKey, cert: cert.certificate }, requestListener)
+    const httpServer = http.createServer({ keepAlive: true, keepAliveTimeout: 3600 * 1000 }, requestListener)
+    httpServer.listen(8000)
     httpsServer.listen(8443)
 }
 
@@ -172,5 +170,5 @@ const http2ServerWork = async () => {
 }
 
 wssServerWork()
-httpsServerWork()
+httpServerWork()
 http2ServerWork()
