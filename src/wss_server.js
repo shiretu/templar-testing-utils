@@ -3,8 +3,7 @@ const http = require('http')
 const http2 = require('http2')
 const pem = require('pem')
 const ws = require('ws')
-// const WebSocketServer = require('ws').Server
-// const WebSocketStream = require('ws').createWebSocketStream
+const tls = require('tls')
 const util = require('util')
 const fs = require('fs')
 const Readable = require('stream').Readable
@@ -13,7 +12,7 @@ const createCertificate = util.promisify(pem.createCertificate)
 
 const version = 'v2'
 
-const wssServerWork = async () => {
+const wssServerWork = async (port) => {
     const cert = await createCertificate({
         days: 365,
         selfSigned: true
@@ -96,10 +95,10 @@ const wssServerWork = async () => {
         // }
     })
 
-    httpsServer.listen(9443)
+    httpsServer.listen(port)
 }
 
-const httpServerWork = async () => {
+const httpServerWork = async (httpPort, httpsPort) => {
     const requestListener = (req, res) => {
         console.log(`HTTP(S) client connected: ${req.socket.remoteAddress}:${req.socket.remotePort} on url: ${req.url}`)
         res.setHeader('templar-testing-server-version', version)
@@ -151,11 +150,11 @@ const httpServerWork = async () => {
     const cert = await createCertificate({ days: 365, selfSigned: true })
     const httpsServer = https.createServer({ key: cert.serviceKey, cert: cert.certificate }, requestListener)
     const httpServer = http.createServer({ keepAlive: true, keepAliveTimeout: 3600 * 1000 }, requestListener)
-    httpServer.listen(8000)
-    httpsServer.listen(8443)
+    httpServer.listen(httpPort)
+    httpsServer.listen(httpsPort)
 }
 
-const http2ServerWork = async () => {
+const http2ServerWork = async (port) => {
     const requestListener = (req, res) => {
         console.log(`HTTP2 client connected: ${req.socket.remoteAddress}:${req.socket.remotePort}`)
         console.log('req\n', req.headers)
@@ -166,9 +165,44 @@ const http2ServerWork = async () => {
 
     const cert = await createCertificate({ days: 365, selfSigned: true })
     const http2Server = http2.createSecureServer({ key: cert.serviceKey, cert: cert.certificate }, requestListener)
-    return http2Server.listen(7443)
+    return http2Server.listen(port)
 }
 
-wssServerWork()
-httpServerWork()
-http2ServerWork()
+const tlsServerDisconnectOnConnectWork = async (port) => {
+    const cert = await createCertificate({ days: 365, selfSigned: true })
+    const tlsServer = tls.createServer({ key: cert.serviceKey, cert: cert.certificate }, (socket) => {
+        // . fd: ${socket._handle.fd}; class name: ${socket._handle.constructor.name}
+        console.log('TLS client connected')
+        socket.on('error', () => { console.log('TLS client disconnected') })
+        socket.destroy()
+        console.log('TLS client destroyed')
+    })
+    tlsServer.listen(port)
+}
+
+const tlsServerDisconnectOnRecvWork = async (port) => {
+    const cert = await createCertificate({ days: 365, selfSigned: true })
+    const tlsServer = tls.createServer({ key: cert.serviceKey, cert: cert.certificate }, (socket) => {
+        // . fd: ${socket._handle.fd}; class name: ${socket._handle.constructor.name}
+        console.log('TLS client connected')
+        socket.on('error', () => { console.log('TLS client disconnected') })
+        socket.on('data', (data) => {
+            console.log(data.toString('utf8'))
+            socket.destroy()
+            console.log('TLS client destroyed')
+        })
+    })
+    tlsServer.listen(port)
+}
+
+wssServerWork(9443) // deprecated
+wssServerWork(9000)
+
+httpServerWork(8000, 8443) // deprecated
+httpServerWork(9001, 9002)
+
+http2ServerWork(7443) // deprecated
+http2ServerWork(9003)
+
+tlsServerDisconnectOnConnectWork(9004)
+tlsServerDisconnectOnRecvWork(9005)
