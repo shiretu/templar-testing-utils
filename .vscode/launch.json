@@ -9,7 +9,7 @@
             "request": "launch",
             "runtimeArgs": [
                 "run-script",
-                "trace_parser",
+                "wss_server",
                 "--",
                 "/tmp/trace",
                 "3805110"
