@@ -81,19 +81,6 @@ const wssServerWork = async (port) => {
                 wss.handleUpgrade(req, sock, _, (ws) => { wss.emit('connection', ws, req) })
                 break
         }
-        // const { pathname } = parse(request.url)
-
-        // if (pathname === '/foo') {
-        //     wss1.handleUpgrade(request, socket, head, function done (ws) {
-        //         wss1.emit('connection', ws, request)
-        //     })
-        // } else if (pathname === '/bar') {
-        //     wss2.handleUpgrade(request, socket, head, function done (ws) {
-        //         wss2.emit('connection', ws, request)
-        //     })
-        // } else {
-        //     socket.destroy()
-        // }
     })
 
     server.listen(port)
@@ -101,7 +88,7 @@ const wssServerWork = async (port) => {
 
 const httpServerWork = async (httpPort, httpsPort) => {
     const requestListener = (req, res) => {
-        console.log(`HTTP(S) client connected: ${req.socket.remoteAddress}:${req.socket.remotePort} on url: ${req.url}`)
+        console.log(`${req.connection.encrypted ? 'HTTPS' : 'HTTP'} client connected: ${req.socket.remoteAddress}:${req.socket.remotePort} on url: ${req.url}`)
         res.setHeader('templar-testing-server-version', version)
         switch (req.url) {
             case '/http_request_failed_transport':
@@ -234,11 +221,31 @@ const tcpServerDisconnectOnRecvWork = async (port) => {
     server.listen(port)
 }
 
-// the current ports are kept unchanged. new ports can be added
-wssServerWork(9000)
-httpServerWork(9001, 9002)
-http2ServerWork(9003)
-tlsServerDisconnectOnConnectWork(9004)
-tlsServerDisconnectOnRecvWork(9005)
-tcpServerDisconnectOnRecvWork(9006)
-tlsServerDisconnectOnTimer(9007)
+// current values can never be changed. New values can be added
+const ports = {
+    wss: 9000,
+
+    http1: 9001,
+    http1s: 9002,
+
+    http2s: 9003,
+
+    tls_disconnect_on_connect: 9004,
+    tls_disconnect_on_recv: 9005,
+
+    tcp_disconnect_on_recv: 9006,
+
+    tls_disconnect_on_timer: 9007
+}
+
+wssServerWork(ports.wss)
+
+httpServerWork(ports.http1, ports.http1s)
+
+http2ServerWork(ports.http2s)
+
+tlsServerDisconnectOnConnectWork(ports.tls_disconnect_on_connect)
+tlsServerDisconnectOnRecvWork(ports.tls_disconnect_on_recv)
+tlsServerDisconnectOnTimer(ports.tls_disconnect_on_timer)
+
+tcpServerDisconnectOnRecvWork(ports.tcp_disconnect_on_recv)
