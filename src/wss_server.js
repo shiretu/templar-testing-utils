@@ -13,6 +13,16 @@ const createCertificate = util.promisify(pem.createCertificate)
 
 const version = 'v2'
 
+const socketInfo = (socket) => {
+    const result = `${socket.remoteAddress}:${socket.remotePort}`
+    const dstAddress = socket.server.address()
+    if (dstAddress.address) {
+        return `${result} -> ${dstAddress.address}:${dstAddress.port}`
+    } else {
+        return result
+    }
+}
+
 const wssServerWork = async (port) => {
     const cert = await createCertificate({
         days: 365,
@@ -169,9 +179,9 @@ const tlsServerDisconnectOnConnectWork = async (port) => {
     const cert = await createCertificate({ days: 365, selfSigned: true })
     const server = tls.createServer({ key: cert.serviceKey, cert: cert.certificate }, (socket) => {
         // . fd: ${socket._handle.fd}; class name: ${socket._handle.constructor.name}
-        console.log(`TLS client connected: ${socket.remoteAddress}:${socket.remotePort}`)
-        socket.on('error', () => { console.log(`TLS client error out: ${socket.remoteAddress}:${socket.remotePort}`) })
-        socket.on('close', () => { console.log(`TLS client disconnected: ${socket.remoteAddress}:${socket.remotePort}`) })
+        console.log(`TLS client connected: ${socketInfo(socket)}`)
+        socket.on('error', () => { console.log(`TLS client error out: ${socketInfo(socket)}`) })
+        socket.on('close', () => { console.log(`TLS client disconnected: ${socketInfo(socket)}`) })
         socket.destroy()
         console.log('TLS client destroyed')
     })
@@ -182,12 +192,12 @@ const tlsServerDisconnectOnRecvWork = async (port) => {
     const cert = await createCertificate({ days: 365, selfSigned: true })
     const server = tls.createServer({ key: cert.serviceKey, cert: cert.certificate }, (socket) => {
         // . fd: ${socket._handle.fd}; class name: ${socket._handle.constructor.name}
-        console.log(`TLS client connected: ${socket.remoteAddress}:${socket.remotePort}`)
-        socket.on('error', () => { console.log(`TLS client error out: ${socket.remoteAddress}:${socket.remotePort}`) })
-        socket.on('close', () => { console.log(`TLS client disconnected: ${socket.remoteAddress}:${socket.remotePort}`) })
+        console.log(`TLS client connected: ${socketInfo(socket)}`)
+        socket.on('error', () => { console.log(`TLS client error out: ${socketInfo(socket)}`) })
+        socket.on('close', () => { console.log(`TLS client disconnected: ${socketInfo(socket)}`) })
         socket.on('data', (data) => {
             console.log(data.toString('utf8'))
-            console.log(`TLS client will be disconnected: ${socket.remoteAddress}:${socket.remotePort}`)
+            console.log(`TLS client will be disconnected: ${socketInfo(socket)}`)
             socket.destroy()
         })
     })
@@ -198,11 +208,11 @@ const tlsServerDisconnectOnTimer = async (port) => {
     const cert = await createCertificate({ days: 365, selfSigned: true })
     const server = tls.createServer({ key: cert.serviceKey, cert: cert.certificate }, (socket) => {
         // . fd: ${socket._handle.fd}; class name: ${socket._handle.constructor.name}
-        console.log(`TLS client connected: ${socket.remoteAddress}:${socket.remotePort}`)
-        socket.on('error', () => { console.log(`TLS client error out: ${socket.remoteAddress}:${socket.remotePort}`) })
-        socket.on('close', () => { console.log(`TLS client disconnected: ${socket.remoteAddress}:${socket.remotePort}`) })
+        console.log(`TLS client connected: ${socketInfo(socket)}`)
+        socket.on('error', () => { console.log(`TLS client error out: ${socketInfo(socket)}`) })
+        socket.on('close', () => { console.log(`TLS client disconnected: ${socketInfo(socket)}`) })
         setTimeout(() => {
-            console.log(`TLS client will be disconnected: ${socket.remoteAddress}:${socket.remotePort}`)
+            console.log(`TLS client will be disconnected: ${socketInfo(socket)}`)
             socket.destroy()
         }, 5000)
     })
@@ -211,11 +221,11 @@ const tlsServerDisconnectOnTimer = async (port) => {
 
 const tcpServerDisconnectOnRecvWork = async (port) => {
     const server = net.createServer({}, (socket) => {
-        console.log('TCP client connected')
-        socket.on('error', () => { console.log('TCP client disconnected') })
+        console.log(`TCP client connected: ${socketInfo(socket)}`)
+        socket.on('error', () => { console.log(`TCP client error out: ${socketInfo(socket)}`) })
         socket.on('data', (data) => {
+            console.log(`TCP client will be disconnected: ${socketInfo(socket)}`)
             socket.destroy()
-            console.log('TCP client destroyed')
         })
     })
     server.listen(port)
