@@ -219,6 +219,21 @@ const tlsServerDisconnectOnTimer = async (port) => {
     server.listen(port)
 }
 
+const tlsServerWrongCn = async (port) => {
+    const cert = await createCertificate({ days: 365, selfSigned: true, commonName: 'www.nonexistent.1.com', altNames: ['www.nonexistent.2.com', 'www.nonexistent.3.com', '*.nonexistent.4.com'] })
+    const server = tls.createServer({ key: cert.serviceKey, cert: cert.certificate }, (socket) => {
+        // . fd: ${socket._handle.fd}; class name: ${socket._handle.constructor.name}
+        console.log(`TLS client connected: ${socketInfo(socket)}`)
+        socket.on('error', () => { console.log(`TLS client error out: ${socketInfo(socket)}`) })
+        socket.on('close', () => { console.log(`TLS client disconnected: ${socketInfo(socket)}`) })
+        setTimeout(() => {
+            console.log(`TLS client will be disconnected: ${socketInfo(socket)}`)
+            socket.destroy()
+        }, 10000)
+    })
+    server.listen(port)
+}
+
 const tcpServerDisconnectOnRecvWork = async (port) => {
     const server = net.createServer({}, (socket) => {
         console.log(`TCP client connected: ${socketInfo(socket)}`)
@@ -245,7 +260,9 @@ const ports = {
 
     tcp_disconnect_on_recv: 9006,
 
-    tls_disconnect_on_timer: 9007
+    tls_disconnect_on_timer: 9007,
+
+    tls_wrong_cn: 9008
 }
 
 wssServerWork(ports.wss)
@@ -257,5 +274,6 @@ http2ServerWork(ports.http2s)
 tlsServerDisconnectOnConnectWork(ports.tls_disconnect_on_connect)
 tlsServerDisconnectOnRecvWork(ports.tls_disconnect_on_recv)
 tlsServerDisconnectOnTimer(ports.tls_disconnect_on_timer)
+tlsServerWrongCn(ports.tls_wrong_cn)
 
 tcpServerDisconnectOnRecvWork(ports.tcp_disconnect_on_recv)
