@@ -4,7 +4,8 @@
     "description": "Collection of utilities to test templar::eutils",
     "scripts": {
         "wss_server": "node ./src/wss_server.js",
-        "trace_parser": "node --max-old-space-size=8192 ./src/trace_parser.js"
+        "trace_parser": "node --max-old-space-size=8192 ./src/trace_parser.js",
+        "coinexfutures": "node ./src/coinexfutures.js"
     },
     "author": "Eugen-Andrei Gavriloaie <andrei@gavriloaie.com>",
     "license": "ISC",
@@ -14,7 +15,8 @@
         "express": "~4.18.1",
         "ws-streamify": "~0.1.4",
         "cli-progress": "~3.11.2",
-        "sorted-array": "~2.0.4"
+        "sorted-array": "~2.0.4",
+        "fast-xml-parser": "~4.0.0"
     },
     "devDependencies": {
         "eslint": "~8.14.0",

@@ -230,6 +230,24 @@ const tcpServerDisconnectOnRecvWork = async (port) => {
     server.listen(port)
 }
 
+const tcpServerHttpResponseNoReason = async (port, withSpace) => {
+    const server = net.createServer({}, (socket) => {
+        console.log(`TCP client connected: ${socketInfo(socket)}`)
+        socket.on('error', () => { console.log(`TCP client error out: ${socketInfo(socket)}`) })
+        socket.on('data', async (data) => {
+            if (withSpace) {
+                await socket.write('HTTP/1.1 200 ')
+            } else {
+                await socket.write('HTTP/1.1 200')
+            }
+            await socket.write('\r\ntemplar-testing-server-version: v2\r\ncontent-length: 0\r\n\r\n')
+            console.log(`TCP client will be disconnected: ${socketInfo(socket)}`)
+            socket.destroy()
+        })
+    })
+    server.listen(port)
+}
+
 // current values can never be changed. New values can be added
 const ports = {
     wss: 9000,
@@ -246,7 +264,10 @@ const ports = {
 
     tls_disconnect_on_timer: 9007,
 
-    wss_with_cn: 9008
+    wss_with_cn: 9008,
+
+    http_response_no_reason_with_space: 9009,
+    http_response_no_reason_no_space: 9010
 }
 
 wssServerWork(ports.wss, false)
@@ -261,3 +282,6 @@ tlsServerDisconnectOnTimer(ports.tls_disconnect_on_timer)
 wssServerWork(ports.wss_with_cn, true)
 
 tcpServerDisconnectOnRecvWork(ports.tcp_disconnect_on_recv)
+
+tcpServerHttpResponseNoReason(ports.http_response_no_reason_with_space, true)
+tcpServerHttpResponseNoReason(ports.http_response_no_reason_no_space, false)
