@@ -137,6 +137,7 @@ const httpServerWork = async (httpPort, httpsPort) => {
             case '/http_chunked_response':
             {
                 let count = 0
+                res.setHeader('empty', '')
                 const s = new Readable({
                     read (size) {
                         this.push('a'.repeat(count + 1))
