@@ -153,10 +153,22 @@ const httpServerWork = async (httpPort, httpsPort) => {
                 break
         }
     }
-
     const cert = await createCertificate({ days: 365, selfSigned: true })
-    const httpsServer = https.createServer({ key: cert.serviceKey, cert: cert.certificate }, requestListener)
-    const httpServer = http.createServer({ keepAlive: true, keepAliveTimeout: 3600 * 1000 }, requestListener)
+    const timeout = 15000
+    const regularOptions = {
+        requestTimeout: timeout,
+        keepAlive: true,
+        keepAliveTimeout: 20200
+    }
+    const tlsOptions = {
+        handshakeTimeout: timeout,
+        sessionTimeout: timeout,
+        key: cert.serviceKey,
+        cert: cert.certificate,
+        ...regularOptions
+    }
+    const httpsServer = https.createServer(tlsOptions, requestListener)
+    const httpServer = http.createServer(regularOptions, requestListener)
     httpServer.listen(httpPort)
     httpsServer.listen(httpsPort)
 }
@@ -231,6 +243,16 @@ const tcpServerDisconnectOnRecvWork = async (port) => {
     server.listen(port)
 }
 
+const tcpServerTlsBlackHole = async (port) => {
+    const server = net.createServer({}, (socket) => {
+        console.log(`TCP client connected: ${socketInfo(socket)}`)
+        socket.on('error', () => { console.log(`TCP client error out: ${socketInfo(socket)}`) })
+        socket.on('close', () => { console.log(`TCP client closed: ${socketInfo(socket)}`) })
+        socket.on('data', (data) => { console.log(`TCP client sent ${data.length} bytes: ${socketInfo(socket)}`) })
+    })
+    server.listen(port)
+}
+
 const tcpServerHttpResponseNoReason = async (port, withSpace) => {
     const server = net.createServer({}, (socket) => {
         console.log(`TCP client connected: ${socketInfo(socket)}`)
@@ -268,7 +290,9 @@ const ports = {
     wss_with_cn: 9008,
 
     http_response_no_reason_with_space: 9009,
-    http_response_no_reason_no_space: 9010
+    http_response_no_reason_no_space: 9010,
+
+    tls_black_hole: 9011
 }
 
 wssServerWork(ports.wss, false)
@@ -286,3 +310,5 @@ tcpServerDisconnectOnRecvWork(ports.tcp_disconnect_on_recv)
 
 tcpServerHttpResponseNoReason(ports.http_response_no_reason_with_space, true)
 tcpServerHttpResponseNoReason(ports.http_response_no_reason_no_space, false)
+
+tcpServerTlsBlackHole(ports.tls_black_hole)

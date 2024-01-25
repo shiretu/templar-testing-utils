@@ -1,13 +1,14 @@
 {
-    "editor.formatOnSave": true,
     "eslint.format.enable": true,
     "[javascript]": {
         "editor.defaultFormatter": "dbaeumer.vscode-eslint",
-        "editor.acceptSuggestionOnCommitCharacter": false
+        "editor.acceptSuggestionOnCommitCharacter": false,
+        "editor.formatOnSave": true
     },
     "[typescript]": {
         "editor.defaultFormatter": "dbaeumer.vscode-eslint",
-        "editor.acceptSuggestionOnCommitCharacter": false
+        "editor.acceptSuggestionOnCommitCharacter": false,
+        "editor.formatOnSave": true
     },
     "explorer.fileNesting.enabled": true
 }
